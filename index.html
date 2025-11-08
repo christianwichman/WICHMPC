@@ -98,10 +98,10 @@
   const AC = new (window.AudioContext || window.webkitAudioContext)();
   const master = AC.createGain();
   master.gain.value = 0.9;
-  master.connect(AC.destination);
 
   const limiter = AC.createDynamicsCompressor();
   limiter.threshold.value = -10; limiter.knee.value = 0; limiter.ratio.value = 12; limiter.attack.value = 0.003; limiter.release.value = 0.08;
+  // Route audio: master → limiter → speakers (single path to avoid duplicates)
   master.connect(limiter); limiter.connect(AC.destination);
 
   function now(){ return AC.currentTime; }
@@ -280,8 +280,25 @@
   const lookahead=25; // ms
   const scheduleAhead=0.1; // sec
 
-  function start(){ if(isPlaying) return; if (AC.state==='suspended') AC.resume(); isPlaying=true; elPlay.disabled=true; startTime = now() - currentStep * (60/bpm/4); timerID = setInterval(scheduler, lookahead); }
-  function stop(){ isPlaying=false; elPlay.disabled=false; clearInterval(timerID); timerID=null; currentStep=0; highlightStep(); }
+  function start(){
+    if(isPlaying) return;
+    if (AC.state==='suspended') AC.resume();
+    isPlaying=true; elPlay.disabled=true;
+    // Start from the current step, but reset the scheduler clock so it doesn't use a stale nextNoteTime
+    const stepLen = 60/bpm/4;
+    startTime = now() - currentStep * stepLen;
+    nextNoteTime = now() + 0.05; // small lookahead to ensure first tick schedules
+    highlightStep();
+    if(timerID) clearInterval(timerID);
+    timerID = setInterval(scheduler, lookahead);
+  }
+  function stop(){
+    isPlaying=false; elPlay.disabled=false;
+    clearInterval(timerID); timerID=null;
+    // Reset playhead to step 0 visually and scheduler clock
+    currentStep=0; highlightStep();
+    nextNoteTime = now();
+  }
 
   function scheduler(){
     const stepDur = 60/bpm/4;
