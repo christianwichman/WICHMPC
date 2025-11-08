@@ -191,6 +191,13 @@
     {name:'Noise Hit', fn:(t)=>{const n=AC.createBufferSource();n.buffer=_noise;const f=AC.createBiquadFilter();f.type='bandpass';f.frequency.value=800;const g=envAD(t,0.0001,0.15,0.8,1e-4);n.connect(f).connect(g).connect(master);n.start(t);n.stop(t+0.2)}}
   ];
 
+  // Recover gracefully if the tab was suspended (e.g., laptop sleeps)
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'visible' && isPlaying){
+      nextNoteTime = now() + 0.05; // jump scheduler forward
+    }
+  });
+
   // Keyboard mapping
   const KEYS = ['q','w','e','r','a','s','d','f','z','x','c','v','1','2','3','4'];
 
@@ -304,16 +311,25 @@
     const stepDur = 60/bpm/4;
     while(nextNoteTime < now() + scheduleAhead){
       scheduleStep(currentStep, nextNoteTime);
-      advanceStep(stepDur);
+      advanceStep(currentStep, stepDur);
     }
+  }
   }
 
   let nextNoteTime = 0;
   function scheduleStep(step, t){
-    // Trigger notes
+    // Trigger notes for this step at time t
     for(let i=0;i<PAD_BANK.length;i++){
       if(pattern[i][step]) playPad(i, t);
     }
+    // Metronome
+    if(elMet.checked){
+      if(step%4===0){ FX.perc(t,{freq:1200,decay:0.02}); } else { FX.perc(t,{freq:800,decay:0.015}); }
+    }
+    // UI step highlight immediately (keeps logic simple & avoids stale currentStep)
+    currentStep = step;
+    highlightStep();
+  }
     // Metronome
     if(elMet.checked){
       if(step%4===0){ FX.perc(t,{freq:1200,decay:0.02}); } else { FX.perc(t,{freq:800,decay:0.015}); }
@@ -322,13 +338,13 @@
     setTimeout(()=>{ currentStep = step; highlightStep(); }, Math.max(0, (t-now())*1000));
   }
 
-  function advanceStep(stepDur){
+  function advanceStep(step, stepDur){
     const base = stepDur;
-    const isSwinged = (currentStep % 2 === 1); // swing on off-beats
+    const isSwinged = (step % 2 === 1); // swing on off-beats based on the scheduled step
     const swingSec = (swingAmt/1000);
     const adjusted = base + (isSwinged ? swingSec : 0);
     nextNoteTime += adjusted;
-    currentStep = (currentStep + 1) % stepsPerBar;
+    currentStep = (step + 1) % stepsPerBar;
   }
 
   function highlightStep(){
