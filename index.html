@@ -48,7 +48,7 @@
 </head>
 <body>
   <header>
-    <h1>Virtual MPC <span class="badge">Single‑file • No external assets</span></h1>
+    <h1>Virtual MPC Ver 3 <span class="badge">Single‑file • No external assets</span></h1>
   </header>
 
   <main class="app">
@@ -68,6 +68,7 @@
           <span class="spacer"></span>
           <label class="toggle"><input id="metronome" type="checkbox" checked /> Metronome</label>
           <label class="toggle"><input id="quantize" type="checkbox" checked /> 1/16 Quantize</label>
+          <label class="toggle"><input id="loop" type="checkbox" checked /> Loop</label>
         </div>
         <div class="row">
           <label for="volume">Volume</label>
@@ -243,17 +244,20 @@
   const elRec = document.getElementById('rec');
   const elMet = document.getElementById('metronome');
   const elQuant = document.getElementById('quantize');
+  const elLoop = document.getElementById('loop');
   const elVol = document.getElementById('volume');
   const elClear = document.getElementById('clearSeq');
   const elSave = document.getElementById('save');
   const elLoad = document.getElementById('load');
+  let loopEnabled = true; let pendingStop = null;
 
   elBpm.addEventListener('change', ()=> bpm = clamp(parseFloat(elBpm.value)||96, 40, 220));
   elSwing.addEventListener('input', ()=> swingAmt = parseInt(elSwing.value,10)||0);
   elVol.addEventListener('input', ()=> master.gain.value = parseFloat(elVol.value));
+  elLoop.addEventListener('change', ()=>{ loopEnabled = !!elLoop.checked; });
   elPlay.addEventListener('click', ()=>{ start(); });
   elStop.addEventListener('click', stop);
-  elRec.addEventListener('click', ()=>{ isRecording=!isRecording; elRec.classList.toggle('accent', isRecording); elRec.textContent = isRecording? '● Rec (On)' : '● Rec'; });
+  elRec.addEventListener('click', ()=>{ isRecording=!isRecording; elRec.classList.toggle('accent', isRecording); elRec.textContent = isRecording? '● Rec (On)' : '● Rec'; }); elRec.textContent = isRecording? '● Rec (On)' : '● Rec'; });
   elClear.addEventListener('click', ()=>{ for(let i=0;i<PAD_BANK.length;i++){ pattern[i].fill(false); updateStepsRow(i);} saveDraft(); });
   elSave.addEventListener('click', savePattern);
   elLoad.addEventListener('click', loadPattern);
@@ -287,22 +291,21 @@
   const lookahead=25; // ms
   const scheduleAhead=0.1; // sec
 
-  function start(){
+  async function start(){
     if(isPlaying) return;
-    if (AC.state==='suspended') AC.resume();
+    if (AC.state !== 'running') { try { await AC.resume(); } catch(e){} }
     isPlaying=true; elPlay.disabled=true;
-    // Start from the current step, but reset the scheduler clock so it doesn't use a stale nextNoteTime
     const stepLen = 60/bpm/4;
     startTime = now() - currentStep * stepLen;
-    nextNoteTime = now() + 0.05; // small lookahead to ensure first tick schedules
+    nextNoteTime = now() + 0.05;
     highlightStep();
     if(timerID) clearInterval(timerID);
     timerID = setInterval(scheduler, lookahead);
   }
   function stop(){
     isPlaying=false; elPlay.disabled=false;
-    clearInterval(timerID); timerID=null;
-    // Reset playhead to step 0 visually and scheduler clock
+    if (timerID) { clearInterval(timerID); timerID=null; }
+    if (pendingStop) { clearTimeout(pendingStop); pendingStop=null; }
     currentStep=0; highlightStep();
     nextNoteTime = now();
   }
@@ -340,11 +343,20 @@
 
   function advanceStep(step, stepDur){
     const base = stepDur;
-    const isSwinged = (step % 2 === 1); // swing on off-beats based on the scheduled step
+    const isSwinged = (step % 2 === 1);
     const swingSec = (swingAmt/1000);
     const adjusted = base + (isSwinged ? swingSec : 0);
+    const nextStep = (step + 1) % stepsPerBar;
+
+    // If loop is off, schedule a graceful stop right after the last step is played
+    if(!loopEnabled && step === stepsPerBar-1){
+      if (pendingStop) clearTimeout(pendingStop);
+      const ms = Math.max(0, (nextNoteTime + adjusted - now()) * 1000);
+      pendingStop = setTimeout(()=>{ stop(); }, ms + 5);
+    }
+
     nextNoteTime += adjusted;
-    currentStep = (step + 1) % stepsPerBar;
+    currentStep = nextStep;
   }
 
   function highlightStep(){
@@ -360,6 +372,14 @@
   // Keyboard
   window.addEventListener('keydown', (e)=>{
     const k = e.key.toLowerCase();
+    // Shift+R toggles record; bare 'r' is reserved for the Open Hat pad
+    if(k==='r' && e.shiftKey){ e.preventDefault(); isRecording=!isRecording; elRec.classList.toggle('accent', isRecording); elRec.textContent = isRecording? '● Rec (On)' : '● Rec'; return; }
+
+    const idx = KEYS.indexOf(k);
+    if(idx>-1){ e.preventDefault(); playPad(idx); return; }
+
+    if(k===' '){ e.preventDefault(); isPlaying? stop(): start(); }
+  });
     const idx = KEYS.indexOf(k);
     if(idx>-1){ e.preventDefault(); playPad(idx); }
     if(k===' '){ e.preventDefault(); isPlaying? stop(): start(); }
