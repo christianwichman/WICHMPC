@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Virtual MPC – Single‑File</title>
+  <title>Virtual MPC Ver 4 – Single‑File</title>
   <style>
     :root{
       --bg:#0f1220;--panel:#151a2e;--panel-2:#0c1022;--accent:#5eead4;--accent-2:#a78bfa;--text:#e6e9f2;--muted:#9aa3b2;--danger:#ef4444
@@ -48,7 +48,7 @@
 </head>
 <body>
   <header>
-    <h1>Virtual MPC Ver 3 <span class="badge">Single‑file • No external assets</span></h1>
+    <h1>Virtual MPC Ver 4 <span class="badge">Single‑file • No external assets</span></h1>
   </header>
 
   <main class="app">
@@ -81,8 +81,8 @@
       </div>
       <div class="grid" id="padGrid"></div>
       <div class="footer">
-        <div>Keys: <span class="kbd">Q W E R</span> <span class="kbd">A S D F</span> <span class="kbd">Z X C V</span> + <span class="kbd">1 2 3 4</span></div>
-        <div class="pill">Click a step to toggle notes while playing or stopped. Recording captures live hits.</div>
+        <div>Keys: <span class="kbd">Q W E R</span> <span class="kbd">A S D F</span> <span class="kbd">Z X C V</span> + <span class="kbd">1 2 3 4</span> — Record: <span class="kbd">Shift+R</span>, Play/Stop: <span class="kbd">Space</span></div>
+        <div class="pill">Click a step to toggle notes. Recording captures live hits (quantized if enabled).</div>
       </div>
     </section>
 
@@ -95,18 +95,14 @@
   </main>
 
   <script>
-  // ======== Simple WebAudio Drum Synth (embedded) ========
   const AC = new (window.AudioContext || window.webkitAudioContext)();
   const master = AC.createGain();
   master.gain.value = 0.9;
-
   const limiter = AC.createDynamicsCompressor();
   limiter.threshold.value = -10; limiter.knee.value = 0; limiter.ratio.value = 12; limiter.attack.value = 0.003; limiter.release.value = 0.08;
-  // Route audio: master → limiter → speakers (single path to avoid duplicates)
   master.connect(limiter); limiter.connect(AC.destination);
 
   function now(){ return AC.currentTime; }
-
   function envAD(t0, a=0.001, d=0.2, peak=1, sustain=0){
     const g = AC.createGain();
     g.gain.setValueAtTime(0, t0);
@@ -127,14 +123,9 @@
     kick(time=now(), {tone=110, decay=0.5, click=0.002}={}){
       const osc = AC.createOscillator(); osc.type='sine';
       const g = envAD(time, 0.001, decay, 1, 1e-4);
-      const pitch = AC.createGain();
-      pitch.gain.setValueAtTime(tone, time);
-      // Exponential pitch drop
-      const freqStart = tone*2.2, freqEnd = tone*0.55;
-      osc.frequency.setValueAtTime(freqStart, time);
-      osc.frequency.exponentialRampToValueAtTime(freqEnd, time + decay);
+      osc.frequency.setValueAtTime(tone*2.2, time);
+      osc.frequency.exponentialRampToValueAtTime(tone*0.55, time + decay);
       osc.connect(g).connect(master);
-      // Click
       const clickOsc = AC.createOscillator(); clickOsc.type='triangle'; clickOsc.frequency.setValueAtTime(1200, time);
       const clickG = envAD(time, 0.0005, click, 0.3, 1e-4); clickOsc.connect(clickG).connect(master);
       osc.start(time); osc.stop(time + decay+0.01);
@@ -149,14 +140,13 @@
       o.start(time); o.stop(time + decay*0.7 + 0.05);
     },
     hat(time=now(), {decay=0.08, open=false}={}){
-      const n = AC.createBufferSource(); n.buffer=_noise; const bp = AC.createBiquadFilter(); bp.type='highpass'; bp.frequency.value=6000;
-      const g = envAD(time, 0.0005, open?0.4:decay, open?0.6:0.5, 1e-4); n.connect(bp).connect(g).connect(master);
+      const n = AC.createBufferSource(); n.buffer=_noise; const hp = AC.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=6000;
+      const g = envAD(time, 0.0005, open?0.4:decay, open?0.6:0.5, 1e-4); n.connect(hp).connect(g).connect(master);
       n.start(time); n.stop(time + (open?0.45:decay+0.05));
     },
     clap(time=now(), {decay=0.35}={}){
-      // Multi-burst filtered noise
-      const makeBurst=(t)=>{const n=AC.createBufferSource();n.buffer=_noise;const f=AC.createBiquadFilter();f.type='bandpass';f.frequency.value=1800;const g=envAD(t,0.0001,0.18,0.7,1e-4);n.connect(f).connect(g).connect(master);n.start(t);n.stop(t+0.2)}
-      makeBurst(time); makeBurst(time+0.012); makeBurst(time+0.024); makeBurst(time+0.038);
+      const burst=(t)=>{const n=AC.createBufferSource();n.buffer=_noise;const f=AC.createBiquadFilter();f.type='bandpass';f.frequency.value=1800;const g=envAD(t,0.0001,0.18,0.7,1e-4);n.connect(f).connect(g).connect(master);n.start(t);n.stop(t+0.2)}
+      burst(time); burst(time+0.012); burst(time+0.024); burst(time+0.038);
     },
     tom(time=now(), {pitch=180, decay=0.35}={}){
       const o=AC.createOscillator(); o.type='sine'; const g=envAD(time,0.001,decay,0.9,1e-4); o.frequency.setValueAtTime(pitch, time); o.connect(g).connect(master); o.start(time); o.stop(time+decay+0.02);
@@ -169,40 +159,27 @@
     }
   };
 
-  // 16 pads mapping to synthesized "samples"
   const PAD_BANK = [
     {name:'Kick', fn:(t)=>FX.kick(t,{tone:105})},
     {name:'Snare', fn:(t)=>FX.snare(t,{tone:190})},
     {name:'Closed Hat', fn:(t)=>FX.hat(t,{decay:0.06})},
     {name:'Open Hat', fn:(t)=>FX.hat(t,{open:true})},
-
     {name:'Clap', fn:(t)=>FX.clap(t,{})},
     {name:'Tom Low', fn:(t)=>FX.tom(t,{pitch:140})},
     {name:'Tom Mid', fn:(t)=>FX.tom(t,{pitch:180})},
     {name:'Tom High', fn:(t)=>FX.tom(t,{pitch:230})},
-
     {name:'Rim', fn:(t)=>FX.rim(t,{})},
     {name:'Perc 1', fn:(t)=>FX.perc(t,{freq:420})},
     {name:'Perc 2', fn:(t)=>FX.perc(t,{freq:720})},
     {name:'Zap', fn:(t)=>{const o=AC.createOscillator();o.type='sawtooth';const g=envAD(t,0.0002,0.12,0.6,1e-4);o.frequency.setValueAtTime(900,t);o.frequency.exponentialRampToValueAtTime(220,t+0.12);o.connect(g).connect(master);o.start(t);o.stop(t+0.14)}},
-
     {name:'Kick 2', fn:(t)=>FX.kick(t,{tone:90})},
     {name:'Snare 2', fn:(t)=>FX.snare(t,{tone:160})},
     {name:'Hat Tight', fn:(t)=>FX.hat(t,{decay:0.04})},
     {name:'Noise Hit', fn:(t)=>{const n=AC.createBufferSource();n.buffer=_noise;const f=AC.createBiquadFilter();f.type='bandpass';f.frequency.value=800;const g=envAD(t,0.0001,0.15,0.8,1e-4);n.connect(f).connect(g).connect(master);n.start(t);n.stop(t+0.2)}}
   ];
 
-  // Recover gracefully if the tab was suspended (e.g., laptop sleeps)
-  document.addEventListener('visibilitychange', ()=>{
-    if(document.visibilityState === 'visible' && isPlaying){
-      nextNoteTime = now() + 0.05; // jump scheduler forward
-    }
-  });
-
-  // Keyboard mapping
   const KEYS = ['q','w','e','r','a','s','d','f','z','x','c','v','1','2','3','4'];
 
-  // Build Pads UI
   const padGrid = document.getElementById('padGrid');
   PAD_BANK.forEach((pad, idx)=>{
     const el = document.createElement('button');
@@ -214,13 +191,10 @@
     pad._el = el;
   });
 
-  // Sequencer state
   let isPlaying=false, isRecording=false;
-  let bpm = 96, swingAmt = 0; // 0-60 ms
-  let currentStep=0; const stepsPerBar=16;
+  let bpm = 96, swingAmt = 0; let currentStep=0; const stepsPerBar=16;
   const pattern = Array.from({length:PAD_BANK.length}, ()=> Array(stepsPerBar).fill(false));
 
-  // Build tracks view
   const tracksEl = document.getElementById('tracks');
   PAD_BANK.forEach((pad, i)=>{
     const row = document.createElement('div'); row.style.display='grid'; row.style.gridTemplateColumns='120px 1fr'; row.style.alignItems='center'; row.style.gap='10px'; row.style.margin='4px 0';
@@ -236,7 +210,6 @@
     pad._stepEls = stepEls;
   });
 
-  // Controls
   const elBpm = document.getElementById('bpm');
   const elSwing = document.getElementById('swing');
   const elPlay = document.getElementById('play');
@@ -244,12 +217,13 @@
   const elRec = document.getElementById('rec');
   const elMet = document.getElementById('metronome');
   const elQuant = document.getElementById('quantize');
-  const elLoop = document.getElementById('loop');
   const elVol = document.getElementById('volume');
   const elClear = document.getElementById('clearSeq');
   const elSave = document.getElementById('save');
   const elLoad = document.getElementById('load');
-  let loopEnabled = true; let pendingStop = null;
+  const elLoop = document.getElementById('loop');
+
+  let loopEnabled = true; let pendingStop=null; elLoop.checked = true;
 
   elBpm.addEventListener('change', ()=> bpm = clamp(parseFloat(elBpm.value)||96, 40, 220));
   elSwing.addEventListener('input', ()=> swingAmt = parseInt(elSwing.value,10)||0);
@@ -257,152 +231,78 @@
   elLoop.addEventListener('change', ()=>{ loopEnabled = !!elLoop.checked; });
   elPlay.addEventListener('click', ()=>{ start(); });
   elStop.addEventListener('click', stop);
-  elRec.addEventListener('click', ()=>{ isRecording=!isRecording; elRec.classList.toggle('accent', isRecording); elRec.textContent = isRecording? '● Rec (On)' : '● Rec'; }); elRec.textContent = isRecording? '● Rec (On)' : '● Rec'; });
+  elRec.addEventListener('click', ()=>{ isRecording=!isRecording; elRec.classList.toggle('accent', isRecording); elRec.textContent = isRecording? '● Rec (On)' : '● Rec'; });
   elClear.addEventListener('click', ()=>{ for(let i=0;i<PAD_BANK.length;i++){ pattern[i].fill(false); updateStepsRow(i);} saveDraft(); });
   elSave.addEventListener('click', savePattern);
   elLoad.addEventListener('click', loadPattern);
 
   function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
 
-  // Play pads + record to pattern (quantized)
   function playPad(idx, scheduledTime){
     if (AC.state === 'suspended') AC.resume();
-    // Visual flash
     PAD_BANK[idx]._el.classList.add('playing'); setTimeout(()=> PAD_BANK[idx]._el.classList.remove('playing'), 70);
-    const t = scheduledTime ?? now();
-    PAD_BANK[idx].fn(t);
-
+    const t = scheduledTime ?? now(); PAD_BANK[idx].fn(t);
     if(isRecording && !scheduledTime){
-      const stepLen = 60/bpm/4; // 16th
-      const pos = (now() - startTime) / stepLen;
-      let step = Math.round(pos) % stepsPerBar; // quantize
-      if(step<0) step=0;
+      const stepLen = 60/bpm/4; const pos = (now() - startTime) / stepLen;
+      let step = Math.round(pos) % stepsPerBar; if(step<0) step=0;
       pattern[idx][step] = true; updateStepsRow(idx); saveDraft();
     }
   }
 
-  function updateStepsRow(i){
-    const row = PAD_BANK[i];
-    row._stepEls.forEach((st, s)=> st.classList.toggle('active', !!pattern[i][s]));
-  }
+  function updateStepsRow(i){ PAD_BANK[i]._stepEls.forEach((st, s)=> st.classList.toggle('active', !!pattern[i][s])); }
 
-  // Scheduler
-  let timerID=null, startTime=0;
-  const lookahead=25; // ms
-  const scheduleAhead=0.1; // sec
+  let timerID=null, startTime=0, nextNoteTime=0, uiCurrentStep=0;
+  const lookahead=25; const scheduleAhead=0.12;
 
   async function start(){
     if(isPlaying) return;
     if (AC.state !== 'running') { try { await AC.resume(); } catch(e){} }
     isPlaying=true; elPlay.disabled=true;
-    const stepLen = 60/bpm/4;
-    startTime = now() - currentStep * stepLen;
-    nextNoteTime = now() + 0.05;
-    highlightStep();
-    if(timerID) clearInterval(timerID);
-    timerID = setInterval(scheduler, lookahead);
+    const stepLen = 60/bpm/4; startTime = now() - currentStep * stepLen; nextNoteTime = now() + 0.05;
+    if(timerID) clearInterval(timerID); timerID = setInterval(scheduler, lookahead);
   }
   function stop(){
     isPlaying=false; elPlay.disabled=false;
     if (timerID) { clearInterval(timerID); timerID=null; }
     if (pendingStop) { clearTimeout(pendingStop); pendingStop=null; }
-    currentStep=0; highlightStep();
-    nextNoteTime = now();
+    currentStep=0; uiCurrentStep=0; drawPlayhead(); nextNoteTime = now();
   }
 
   function scheduler(){
     const stepDur = 60/bpm/4;
     while(nextNoteTime < now() + scheduleAhead){
-      scheduleStep(currentStep, nextNoteTime);
-      advanceStep(currentStep, stepDur);
+      const step = currentStep; scheduleStep(step, nextNoteTime); advanceStep(step, stepDur);
     }
   }
-  }
-
-  let nextNoteTime = 0;
   function scheduleStep(step, t){
-    // Trigger notes for this step at time t
-    for(let i=0;i<PAD_BANK.length;i++){
-      if(pattern[i][step]) playPad(i, t);
-    }
-    // Metronome
-    if(elMet.checked){
-      if(step%4===0){ FX.perc(t,{freq:1200,decay:0.02}); } else { FX.perc(t,{freq:800,decay:0.015}); }
-    }
-    // UI step highlight immediately (keeps logic simple & avoids stale currentStep)
-    currentStep = step;
-    highlightStep();
+    for(let i=0;i<PAD_BANK.length;i++){ if(pattern[i][step]) playPad(i, t); }
+    if(elMet.checked){ if(step%4===0){ FX.perc(t,{freq:1200,decay:0.02}); } else { FX.perc(t,{freq:800,decay:0.015}); } }
+    uiCurrentStep = step; // RAF paints
   }
-    // Metronome
-    if(elMet.checked){
-      if(step%4===0){ FX.perc(t,{freq:1200,decay:0.02}); } else { FX.perc(t,{freq:800,decay:0.015}); }
-    }
-    // UI step highlight (slight delay so it lines up visually)
-    setTimeout(()=>{ currentStep = step; highlightStep(); }, Math.max(0, (t-now())*1000));
-  }
-
   function advanceStep(step, stepDur){
-    const base = stepDur;
-    const isSwinged = (step % 2 === 1);
-    const swingSec = (swingAmt/1000);
-    const adjusted = base + (isSwinged ? swingSec : 0);
-    const nextStep = (step + 1) % stepsPerBar;
-
-    // If loop is off, schedule a graceful stop right after the last step is played
-    if(!loopEnabled && step === stepsPerBar-1){
-      if (pendingStop) clearTimeout(pendingStop);
-      const ms = Math.max(0, (nextNoteTime + adjusted - now()) * 1000);
-      pendingStop = setTimeout(()=>{ stop(); }, ms + 5);
-    }
-
-    nextNoteTime += adjusted;
-    currentStep = nextStep;
+    const isSwinged = (step % 2 === 1); const swingSec = (swingAmt/1000);
+    const adjusted = stepDur + (isSwinged ? swingSec : 0); const nextStep = (step + 1) % stepsPerBar;
+    if(!loopEnabled && step === stepsPerBar-1){ if (pendingStop) clearTimeout(pendingStop); const ms = Math.max(0, (nextNoteTime + adjusted - now()) * 1000); pendingStop = setTimeout(()=>{ stop(); }, ms + 5); }
+    nextNoteTime += adjusted; currentStep = nextStep;
   }
 
-  function highlightStep(){
-    // remove previous markers
-    PAD_BANK.forEach(p=> p._stepEls.forEach(st=> st.classList.remove('now')));
-    // add current
-    PAD_BANK.forEach(p=> p._stepEls[currentStep]?.classList.add('now'));
-  }
+  function drawPlayhead(){ PAD_BANK.forEach(p=> p._stepEls.forEach(st=> st.classList.remove('now'))); PAD_BANK.forEach(p=> p._stepEls[uiCurrentStep]?.classList.add('now')); }
+  function rafLoop(){ drawPlayhead(); requestAnimationFrame(rafLoop); } requestAnimationFrame(rafLoop);
 
-  // Init scheduler start time
-  nextNoteTime = now();
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible' && isPlaying){ nextNoteTime = now() + 0.05; } });
 
-  // Keyboard
   window.addEventListener('keydown', (e)=>{
     const k = e.key.toLowerCase();
-    // Shift+R toggles record; bare 'r' is reserved for the Open Hat pad
     if(k==='r' && e.shiftKey){ e.preventDefault(); isRecording=!isRecording; elRec.classList.toggle('accent', isRecording); elRec.textContent = isRecording? '● Rec (On)' : '● Rec'; return; }
-
-    const idx = KEYS.indexOf(k);
-    if(idx>-1){ e.preventDefault(); playPad(idx); return; }
-
+    const idx = KEYS.indexOf(k); if(idx>-1){ e.preventDefault(); playPad(idx); return; }
     if(k===' '){ e.preventDefault(); isPlaying? stop(): start(); }
   });
-    const idx = KEYS.indexOf(k);
-    if(idx>-1){ e.preventDefault(); playPad(idx); }
-    if(k===' '){ e.preventDefault(); isPlaying? stop(): start(); }
-    if(k==='r'){ isRecording=!isRecording; elRec.classList.toggle('accent', isRecording); elRec.textContent = isRecording? '● Rec (On)' : '● Rec'; }
-  });
 
-  // Persistence
-  function savePattern(){
-    localStorage.setItem('virtualMPC_pattern', JSON.stringify({bpm, swingAmt, pattern}));
-  }
-  function saveDraft(){ // autosave lightweight
-    localStorage.setItem('virtualMPC_draft', JSON.stringify({bpm, swingAmt, pattern}));
-  }
-  function loadPattern(){
-    const raw = localStorage.getItem('virtualMPC_pattern') || localStorage.getItem('virtualMPC_draft');
-    if(!raw) return;
-    try{
-      const obj = JSON.parse(raw);
-      bpm = clamp(obj.bpm||96, 40, 220); swingAmt = obj.swingAmt||0; elBpm.value=bpm; elSwing.value=swingAmt;
-      for(let i=0;i<PAD_BANK.length;i++){ for(let s=0;s<stepsPerBar;s++){ pattern[i][s] = !!(obj.pattern?.[i]?.[s]); } updateStepsRow(i); }
-    }catch(e){ console.warn('load failed', e); }
-  }
+  function savePattern(){ localStorage.setItem('virtualMPC_pattern', JSON.stringify({version:'4', bpm, swingAmt, loop:loopEnabled, pattern})); }
+  function saveDraft(){ localStorage.setItem('virtualMPC_draft', JSON.stringify({version:'4', bpm, swingAmt, loop:loopEnabled, pattern})); }
+  function loadPattern(){ const raw = localStorage.getItem('virtualMPC_pattern') || localStorage.getItem('virtualMPC_draft'); if(!raw) return; try{ const obj = JSON.parse(raw); bpm = clamp(obj.bpm||96, 40, 220); swingAmt = obj.swingAmt||0; elBpm.value=bpm; elSwing.value=swingAmt; loopEnabled = obj.loop!==undefined ? !!obj.loop : true; elLoop.checked = loopEnabled; for(let i=0;i<PAD_BANK.length;i++){ for(let s=0;s<stepsPerBar;s++){ pattern[i][s] = !!(obj.pattern?.[i]?.[s]); } updateStepsRow(i); } }catch(e){ console.warn('load failed', e); } }
   loadPattern();
+  function highlightStep(){ drawPlayhead(); }
 
   </script>
 </body>
